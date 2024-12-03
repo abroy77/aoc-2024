@@ -4,7 +4,6 @@ use nom::{
     IResult,
 };
 use std::{
-    borrow::Borrow,
     cmp::{self, Ordering},
     collections::HashMap,
     env,
@@ -68,32 +67,59 @@ fn get_report_order(report: &[u64]) -> Ordering {
     counts.iter().max_by_key(|entry| entry.1).unwrap().0.clone()
 }
 
-fn is_report_safe(report: &[u64]) -> Option<usize> {
-    match get_report_order(report) {
-        cmp::Ordering::Less => 
+fn find_report_error(report: &[u64], ordering: cmp::Ordering) -> Option<usize> {
+    report.windows(2).enumerate().find_map(|(i, w)| {
+        let diff = w[1].abs_diff(w[0]);
+        if (1..=3).contains(&diff) && w[0].cmp(&w[1]) == ordering {
+            None
+        } else {
+            Some(i)
+        }
+    })
+}
+
+fn is_report_safe(report: &[u64]) -> bool {
+    let report_order = get_report_order(report);
+
+    if let Some(error_index) = find_report_error(report, report_order) {
+        // houston we have a problem.
+        // now we need to retry 2 variants. removing element error_index and the next
+        let removed: Vec<u64> = report
+            .iter()
+            .enumerate()
+            .filter_map(
+                |(i, value)| {
+                    if i != error_index {
+                        Some(*value)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .collect();
+        // check if that fixes it
+        if let None = find_report_error(&removed, report_order) {
+            return true;
+        }
+
+        let removed: Vec<u64> = report
+            .iter()
+            .enumerate()
+            .filter_map(|(i, value)| {
+                if i != error_index + 1 {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // check if that fixes it
+        if let None = find_report_error(&removed, report_order) {
+            return true;
+        }
+        return false;
     }
-    
-    
-    if report.is_sorted_by(|a, b| a.ge(b)) {
-        report.windows(2).enumerate().find_map(|(i, w)| {
-            let diff = w[0] - w[1];
-            if (1..=3).contains(&diff) {
-                None
-            } else {
-                Some(i)
-            }
-        })
-    } else if report.is_sorted_by(|a, b| b.ge(a)) {
-        report.windows(2).enumerate().find_map(|(i, w)| {
-            let diff = w[1] - w[0];
-            if (1..=3).contains(&diff) {
-                None
-            } else {
-                Some(i)
-            }
-        })
-    } else {
-    }
+    true
 }
 
 #[cfg(test)]
@@ -117,6 +143,6 @@ mod tests {
 1 3 6 7 9";
         let (_, data) = parse_input(input).unwrap();
         let slices: Vec<&[u64]> = data.iter().map(|v| v.as_slice()).collect();
-        assert_eq!(2, solve(&slices));
+        assert_eq!(4, solve(&slices));
     }
 }
