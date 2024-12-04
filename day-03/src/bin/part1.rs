@@ -1,10 +1,9 @@
-use std::{env, fs::read_to_string, i32, path::PathBuf, str::FromStr};
+use std::{env, fs::read_to_string, path::PathBuf, str::FromStr};
 
 use nom::{
-    branch::alt,
     bytes::complete::tag,
     character::complete::{anychar, char, i32, newline},
-    multi::{many0, many1, many_till, separated_list1},
+    multi::{many1, many_till, separated_list1},
     sequence::{delimited, preceded, separated_pair},
     IResult,
 };
@@ -52,22 +51,6 @@ fn solve(data: &[&[(i32, i32)]]) -> i32 {
     data.iter()
         .flat_map(|line| line.iter().map(|(x, y)| x * y))
         .sum()
-}
-
-fn is_report_safe(report: &[u64]) -> bool {
-    if report.is_sorted_by(|a, b| a.ge(b)) {
-        !report.windows(2).any(|w| {
-            let diff = w[0] - w[1];
-            !(1..=3).contains(&diff)
-        })
-    } else if report.is_sorted_by(|a, b| b.ge(a)) {
-        !report.windows(2).any(|w| {
-            let diff = w[1] - w[0];
-            !(1..=3).contains(&diff)
-        })
-    } else {
-        false
-    }
 }
 
 #[cfg(test)]
