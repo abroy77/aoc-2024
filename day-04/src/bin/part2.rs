@@ -30,17 +30,6 @@ fn parse_grid(input: &str) -> Vec<Vec<char>> {
     result
 }
 
-const DIRECTIONS: [(isize, isize); 8] = [
-    (-1, 0),
-    (-1, 1),
-    (0, 1),
-    (1, 1),
-    (1, 0),
-    (1, -1),
-    (0, -1),
-    (-1, -1),
-];
-
 const ORIENTATIONS: [(isize, isize); 4] = [(1, 1), (-1, -1), (1, -1), (-1, 1)];
 
 fn solve(input: Vec<Vec<char>>) -> usize {
@@ -54,23 +43,29 @@ fn solve(input: Vec<Vec<char>>) -> usize {
                 continue;
             }
 
-            for (dr, dc) in DIRECTIONS {
-                let (end_i, end_j) = (i as isize + dr, j as isize + dc);
-                if end_j >= 0
-                    && end_j < num_cols as isize
-                    && end_i >= 0
-                    && end_i < num_rows as isize
-                {
-                    let i = i as isize;
-                    let j = j as isize;
+            // simplified bounds checking
+            let num_rows = num_rows as isize;
+            let num_cols = num_cols as isize;
+            let i = i as isize;
+            let j = j as isize;
 
-                    if input[(i + dr) as usize][(j + dc) as usize] == 'M'
-                        && input[(i + 2 * dr) as usize][(j + 2 * dc) as usize] == 'A'
-                        && input[end_i as usize][end_j as usize] == 'S'
-                    {
-                        count += 1;
-                    }
+            if i - 1 < 0 || j - 1 < 0 || i + 1 >= num_rows || j + 1 >= num_cols {
+                continue;
+            }
+
+            // we know that we are now within bounds to check the neighbours for the pattern
+            let mut mas_count = 0;
+            for or in ORIENTATIONS {
+                let opposite = (-or.0, -or.1);
+                if input[(i + or.0) as usize][(j + or.1) as usize] == 'M'
+                    && input[(i + opposite.0) as usize][(j + opposite.1) as usize] == 'S'
+                {
+                    mas_count += 1;
                 }
+            }
+
+            if mas_count >= 2 {
+                count += 1;
             }
         }
     }
