@@ -29,7 +29,7 @@ fn solve(mut data: Vec<Option<usize>>) -> usize {
             continue;
         } else {
             // aha! a free space
-            if let Some(file) = data[blank_index] {
+            if data[blank_index].is_some() {
                 // swap em like it's hot
                 data.swap(file_index, blank_index);
             } else {
@@ -40,9 +40,9 @@ fn solve(mut data: Vec<Option<usize>>) -> usize {
         }
     }
     data.iter()
-        .take_while(|x| x.is_some())
+        .filter_map(|e| *e)
         .enumerate()
-        .map(|(i, x)| x.unwrap() * i)
+        .map(|(i, x)| x * i)
         .sum()
 }
 
@@ -53,11 +53,9 @@ fn parse_input(input: &str) -> Vec<Option<usize>> {
         .collect();
 
     let vec_size = nums.iter().sum();
-    dbg!(vec_size);
     let mut data: Vec<Option<usize>> = vec![None; vec_size];
     let mut data_index = 0;
     for (id, c) in nums.chunks(2).enumerate() {
-        dbg!(c);
         let file_len = c[0];
         let blank_len = c.get(1).unwrap_or(&0);
         data.iter_mut()
