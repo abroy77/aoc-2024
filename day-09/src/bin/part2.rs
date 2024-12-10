@@ -64,7 +64,7 @@ fn solve(mut files: Files, mut blanks: Blanks) -> usize {
             // we need to check if the blank we're looking for is to the right of the file
             // if it is. we've compressed all we can
             if blank.pos >= file.pos {
-                break;
+                continue;
             }
             if blank.size == file.size {
                 // move the file to the location of the blank
