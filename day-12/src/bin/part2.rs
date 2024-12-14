@@ -1,27 +1,12 @@
+use core::panic;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env,
+    fmt::Debug,
     fs::read_to_string,
     path::PathBuf,
     str::FromStr,
 };
-enum ORIENTATION {
-    Up,
-    Right,
-    Down,
-    Left
-}
-
-impl ORIENTATION {
-    fn value(&self) -> Point {
-        match self {
-            Self::Up => (-1,0),
-            Self::Right => (1,0),
-            Self::Down => (1,0),
-            Self::Left => (-1,0)
-        }
-    }
-}
 
 const DIRECTIONS: [(isize, isize); 4] = [(-1, 0), (0, 1), (1, 0), (0, -1)];
 fn main() -> std::io::Result<()> {
@@ -42,6 +27,8 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 type Point = (isize, isize);
+// same actual types. aliasing for readability
+type Dir = Point;
 
 fn parse_grid(input: &str) -> Vec<Vec<char>> {
     let mut result = Vec::new();
@@ -63,9 +50,9 @@ fn point_add(a: &Point, b: &Point) -> Point {
     (a.0 + b.0, a.1 + b.1)
 }
 
-fn solve<T: PartialEq>(grid: &[&[T]]) -> usize {
+fn solve<T: PartialEq + Debug>(grid: &[&[T]]) -> usize {
     let num_rows = grid.len();
-    let num_cols = grid[0].len(); 
+    let num_cols = grid[0].len();
 
     let mut patches = vec![];
     let mut seen = HashSet::new();
@@ -79,24 +66,15 @@ fn solve<T: PartialEq>(grid: &[&[T]]) -> usize {
         }
     }
 
-    // we have the patches. now we need to score them
+    // we have the patches. now for each patch we need to calculate the number of sides it has
+
     let mut score = 0;
     for patch in patches.iter() {
         let area = patch.len();
-        // getting the perimeter is more involved
-        let mut perimeter = 0;
-        for p in patch {
-            // see how many of its neighbors are in this object
-            // or we could check the grid as well
-            for dir in DIRECTIONS.iter() {
-                let n = point_add(p, dir);
-                if !patch.contains(&n) {
-                    perimeter += 1;
-                }
-            }
-        }
+        // getting the num of sides is more involved
+        let num_sides = count_sides(grid, patch);
 
-        score += area * perimeter;
+        score += area * num_sides;
     }
     score
 }
@@ -126,42 +104,103 @@ fn flood_fill<T: PartialEq>(
     members
 }
 
-fn get_edges<T: PartialEq>(grid: &[&[T]], p: &Point) -> HashSet<Point>{
+fn get_point_edges<T: PartialEq>(grid: &[&[T]], p: Point) -> HashSet<Dir> {
     let mut edges = HashSet::new();
     let value = &grid[p.0 as usize][p.1 as usize];
     for dir in DIRECTIONS.iter() {
-        let n = point_add(p, dir);
-        if *value == grid[n.0 as usize][n.1 as usize] {
+        let n = point_add(&p, dir);
+        if in_bounds(grid, &n) && *value != grid[n.0 as usize][n.1 as usize] {
+            // don't matche so is an edge
             edges.insert(*dir);
         }
-        
+
+        // or if it's out of bounds it's a boundary
+        if !in_bounds(grid, &n) {
+            edges.insert(*dir);
+        }
     }
     edges
-    
 }
 
+type PeMap = HashMap<Point, HashSet<Dir>>;
 
-fn count_sides(patch: &HashSet<Point>) -> usize {
-    let mut count = 0;
-    // first we get the boundary points only
-    let mut boundary_patch: HashMap<Point, Hash> = patch
-        .iter()
-        .filter(|p| {
-            for dir in DIRECTIONS.iter() {
-                let n = point_add(p, dir);
-                if !patch.contains(&n) {
-                    return true;
+fn flood_fill_point_edges<T: PartialEq>(
+    grid: &[&[T]],
+    pe_map: &PeMap,
+    p: Point,
+    e: Dir,
+) -> HashSet<(Point, Dir)> {
+    let directions = if e == (-1, 0) || e == (1, 0) {
+        // if edge pointing up or down. explore left right
+        [(0, -1), (0, 1)]
+    } else if e == (0, 1) || e == (0, -1) {
+        // if edge pointing left right explore up down
+        [(-1, 0), (1, 0)]
+    } else {
+        panic!("unknown direction")
+    };
+
+    let mut seen_points = HashSet::from([p]);
+    let mut queue = VecDeque::from([p]);
+    let mut point_edges: HashSet<(Point, Dir)> = HashSet::from([(p, e)]);
+
+    while let Some(p) = queue.pop_front() {
+        for dir in directions.iter() {
+            let neighbor = point_add(&p, dir);
+            if in_bounds(grid, &neighbor) && !seen_points.contains(&neighbor) {
+                // not explored this point before.
+                // get the edges of the neighbor
+                if let Some(neighbor_edges) = pe_map.get(&neighbor) {
+                    // if the neighbor is in the pe_map we can now look for the set of it's edges
+                    if neighbor_edges.contains(&e) {
+                        // aha we share an edge.
+                        // add this to point_edges
+                        point_edges.insert((neighbor, e));
+                        queue.push_back(neighbor);
+                    }
                 }
+                seen_points.insert(neighbor);
             }
-            false
-        })
-        .copied()
-        .collect();
-    // within the boundary patches we want to somehow loop through and count the sides
-    let boundary_point = boundary_patch.iter().next().copied().unwrap();
-    let mut seen: HashSet<Point> = HashSet::from([boundary_point]);
-    let mut queue = VecDeque::from([boundary_point]);
-    while let Some(p) = queue.pop_front()
+        }
+    }
+    point_edges
+}
+
+fn get_patch_point_edge_map<T: PartialEq>(grid: &[&[T]], patch: &HashSet<Point>) -> PeMap {
+    // returns a set of tuples.
+    // first element is the coordinate of the element with the edge.
+    // second element is the direction (up down left right) that the edge is facing
+    let mut point_edges: HashMap<(isize, isize), HashSet<(isize, isize)>> = HashMap::new();
+    for p in patch.iter() {
+        let edges = get_point_edges(grid, *p);
+        point_edges.insert(*p, edges);
+    }
+
+    point_edges
+}
+
+fn count_sides<T: PartialEq>(grid: &[&[T]], patch: &HashSet<Point>) -> usize {
+    let mut count = 0;
+    // get all the point edges
+    let point_edges_map = get_patch_point_edge_map(grid, patch);
+
+    let mut seen: HashSet<(Point, Dir)> = HashSet::new();
+    for (p, edges) in point_edges_map.iter() {
+        for edge in edges.iter() {
+            if seen.contains(&(*p, *edge)) {
+                continue;
+            }
+
+            // found a point edge we have not seen before
+            count += 1;
+            // find all contiguous point edges
+            for pe in flood_fill_point_edges(grid, &point_edges_map, *p, *edge).iter() {
+                seen.insert(*pe);
+            }
+            //insert this pe into seen itself
+            seen.insert((*p, *edge));
+        }
+    }
 
     count
 }
@@ -170,20 +209,47 @@ fn count_sides(patch: &HashSet<Point>) -> usize {
 mod tests {
     use super::*;
     #[test]
-    fn test_sample() {
-        let input = r"RRRRIICCFF
-RRRRIICCCF
-VVRRRCCFFF
-VVRCCCJFFF
-VVVVCJJCFE
-VVIVCCJJEE
-VVIIICJJEE
-MIIIIIJJEE
-MIIISIJEEE
-MMMISSJEEE";
+    fn test_sample_3() {
+        let input = r"AAAA";
 
         let grid = parse_grid(input);
         let slices: Vec<_> = grid.iter().map(|v| v.as_slice()).collect();
-        assert_eq!(1930, solve(&slices));
+        assert_eq!(16, solve(&slices));
+    }
+    #[test]
+    fn test_sample_1() {
+        let input = r"AAAA
+BBCD
+BBCC
+EEEC";
+
+        let grid = parse_grid(input);
+        let slices: Vec<_> = grid.iter().map(|v| v.as_slice()).collect();
+        assert_eq!(80, solve(&slices));
+    }
+    #[test]
+    fn test_sample_2() {
+        let input = r"EEEEE
+EXXXX
+EEEEE
+EXXXX
+EEEEE";
+
+        let grid = parse_grid(input);
+        let slices: Vec<_> = grid.iter().map(|v| v.as_slice()).collect();
+        assert_eq!(236, solve(&slices));
+    }
+    #[test]
+    fn test_sample_4() {
+        let input = r"AAAAAA
+AAABBA
+AAABBA
+ABBAAA
+ABBAAA
+AAAAAA";
+
+        let grid = parse_grid(input);
+        let slices: Vec<_> = grid.iter().map(|v| v.as_slice()).collect();
+        assert_eq!(368, solve(&slices));
     }
 }
