@@ -1,4 +1,4 @@
-use std::{collections::HashSet, env, fs::read_to_string, path::PathBuf, str::FromStr};
+use std::{env, fs::read_to_string, path::PathBuf, str::FromStr};
 
 use nom::{
     bytes::complete::tag,
@@ -28,31 +28,14 @@ fn main() -> std::io::Result<()> {
 }
 
 fn solve(robots: &[(Point, Point)], xlim: isize, ylim: isize) -> isize {
-    let mut time = 0;
-    let mut is_tree = false;
-
-    while !is_tree {
-        time += 1;
-        is_tree = check_symmetry(robots, xlim, ylim, time);
-    }
-    time
+    (0_isize..50000)
+        .min_by_key(|t: &isize| get_symmetry_score(robots, xlim, ylim, *t))
+        .unwrap()
 }
 
-fn check_symmetry_single_element(points: &HashSet<Point>, mid_x: isize, p: Point) -> bool {
-    if p.0 == mid_x {
-        true
-    } else if p.0 < mid_x {
-        let mirrored_point = (mid_x * 2 - p.0, p.1);
-        points.contains(&mirrored_point)
-    } else {
-        let mirrored_point = (p.0 - mid_x, p.1);
-        points.contains(&mirrored_point)
-    }
-}
-
-fn check_symmetry(robots: &[(Point, Point)], xlim: isize, ylim: isize, time: isize) -> bool {
+fn get_symmetry_score(robots: &[(Point, Point)], xlim: isize, ylim: isize, time: isize) -> usize {
     // for each robot, simulate it
-    let final_points: HashSet<_> = robots
+    let final_points: Vec<_> = robots
         .iter()
         .map(|(p, v)| simulate_robot(*p, *v, time))
         .map(|p| (wrap_value(p.0, xlim), wrap_value(p.1, ylim)))
@@ -61,36 +44,31 @@ fn check_symmetry(robots: &[(Point, Point)], xlim: isize, ylim: isize, time: isi
     // check if each point has a mirrored point along the xline
 
     let mid_x = xlim / 2;
-    final_points
-        .iter()
-        .all(|p| check_symmetry_single_element(&final_points, mid_x, *p))
-
+    let mid_y = ylim / 2;
     // now we need to count the num of robots in each quadrant
-    // let mid_x = xlim / 2;
-    // let mid_y = ylim / 2;
-    // let mut quad1 = 0; // top left
-    // let mut quad2 = 0; // top right
-    // let mut quad3 = 0; // bottom left
-    // let mut quad4 = 0; // bottom right
+    let mut quad1 = 0; // top left
+    let mut quad2 = 0; // top right
+    let mut quad3 = 0; // bottom left
+    let mut quad4 = 0; // bottom right
 
-    // for p in final_points {
-    //     let (x, y) = p;
-    //     if x < mid_x {
-    //         if y < mid_y {
-    //             quad1 += 1;
-    //         } else if y > mid_y {
-    //             quad3 += 1;
-    //         }
-    //     } else if x > mid_x {
-    //         if y < mid_y {
-    //             quad2 += 1;
-    //         } else if y > mid_y {
-    //             quad4 += 1;
-    //         }
-    //     }
-    // }
+    for p in final_points {
+        let (x, y) = p;
+        match x {
+            x if x < mid_x => match y {
+                y if y < mid_y => quad1 += 1,
+                y if y > mid_y => quad3 += 1,
+                _ => (),
+            },
+            x if x > mid_x => match y {
+                y if y < mid_y => quad2 += 1,
+                y if y > mid_y => quad4 += 1,
+                _ => (),
+            },
+            _ => (),
+        }
+    }
 
-    // quad1 == quad2 && quad3 == quad4
+    quad1 * quad2 * quad3 * quad4
 }
 
 fn simulate_robot(p: Point, v: Point, t: isize) -> Point {
@@ -150,5 +128,25 @@ mod tests {
         for (i, a) in inputs.iter().zip(answers.iter()) {
             assert_eq!(*a, wrap_value(*i, lim));
         }
+    }
+    #[test]
+    fn test_sample() {
+        let input = r"p=0,4 v=3,-3
+p=6,3 v=-1,-3
+p=10,3 v=-1,2
+p=2,0 v=2,-1
+p=0,0 v=1,3
+p=3,0 v=-2,-2
+p=7,6 v=-1,-3
+p=3,0 v=-1,-2
+p=9,3 v=2,3
+p=7,3 v=-1,2
+p=2,4 v=2,-3
+p=9,5 v=-3,-3";
+        let xlim = 11;
+        let ylim = 7;
+        let time = 100;
+        let (_, robots) = parse_input(input).unwrap();
+        assert_eq!(12, get_symmetry_score(&robots, xlim, ylim, time));
     }
 }
