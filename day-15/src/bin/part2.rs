@@ -22,14 +22,14 @@ fn main() -> std::io::Result<()> {
     assert!(data_path.exists(), "data path does not exist");
     let data = read_to_string(data_path).expect("could not read datapath");
     let (_, (grid, moves)) = parse_input(&data).unwrap();
-    let result = solve(grid, moves);
+    let (result, _) = solve(grid, moves);
 
     println!("Solution is {}", result);
 
     Ok(())
 }
 
-fn solve(mut grid: Vec<Vec<char>>, moves: Vec<Point>) -> usize {
+fn solve(mut grid: Vec<Vec<char>>, moves: Vec<Point>) -> (usize, Vec<Vec<char>>) {
     let slices: Vec<&[char]> = grid.iter().map(|v| v.as_slice()).collect();
     let mut pos = get_start_point(&slices);
     // now make a mutable slice ref
@@ -41,16 +41,19 @@ fn solve(mut grid: Vec<Vec<char>>, moves: Vec<Point>) -> usize {
 
     // now we need to score the system
 
-    grid.iter()
+    let result = grid
+        .iter()
         .enumerate()
         .flat_map(|(i, row)| {
             row.iter().enumerate().filter_map(move |(j, c)| match *c {
-                'O' => Some((i, j)),
+                '[' => Some((i, j)),
                 _ => None,
             })
         })
         .map(|(i, j)| 100 * i + j)
-        .sum()
+        .sum();
+
+    (result, grid)
 }
 
 fn parse_input(input: &str) -> IResult<&str, (Vec<Vec<char>>, Vec<Point>)> {
@@ -99,30 +102,38 @@ fn parse_moves(input: &str) -> IResult<&str, Vec<Point>> {
 fn move_wall_vertically(grid: &mut [&mut [char]], dir: Point, thing_pos: Point) -> Point {
     assert!([(1, 0), (-1, 0)].contains(&dir));
     let current_element_copy = grid[thing_pos.0 as usize][thing_pos.1 as usize];
-    dbg!(current_element_copy);
+    // dbg!(current_element_copy);
     assert!(current_element_copy == '[' || current_element_copy == ']');
-    let paired_pos = if current_element_copy == '[' {
-        (thing_pos.0, thing_pos.1 + 1)
+
+    let left_pos = if current_element_copy == '[' {
+        (thing_pos.0, thing_pos.1)
     } else {
         (thing_pos.0, thing_pos.1 - 1)
     };
 
-    let paired_element_copy = grid[paired_pos.0 as usize][paired_pos.1 as usize];
+    let right_pos = (left_pos.0, left_pos.1 + 1);
+
+    // let paired_element_copy = grid[paired_pos.0 as usize][paired_pos.1 as usize];
 
     // recursive function
     // returns the position the thing was moved to
+    let next_left_pos = add_points(left_pos, dir);
+    let next_right_pos = add_points(right_pos, dir);
+    let left_element = grid[left_pos.0 as usize][left_pos.1 as usize];
+    let right_element = grid[right_pos.0 as usize][right_pos.1 as usize];
+
     let next_pos = add_points(thing_pos, dir);
-    let next_p_pos = add_points(paired_pos, dir);
+
     match (
-        grid[next_pos.0 as usize][next_pos.1 as usize],
-        grid[next_p_pos.0 as usize][next_p_pos.1 as usize],
+        grid[next_left_pos.0 as usize][next_left_pos.1 as usize],
+        grid[next_right_pos.0 as usize][next_right_pos.1 as usize],
     ) {
         ('.', '.') => {
             // free space to move into
-            grid[next_pos.0 as usize][next_pos.1 as usize] = current_element_copy;
-            grid[next_p_pos.0 as usize][next_p_pos.1 as usize] = paired_element_copy;
-            grid[thing_pos.0 as usize][thing_pos.1 as usize] = '.';
-            grid[paired_pos.0 as usize][paired_pos.1 as usize] = '.';
+            grid[next_left_pos.0 as usize][next_left_pos.1 as usize] = left_element;
+            grid[next_right_pos.0 as usize][next_right_pos.1 as usize] = right_element;
+            grid[left_pos.0 as usize][left_pos.1 as usize] = '.';
+            grid[right_pos.0 as usize][right_pos.1 as usize] = '.';
             next_pos
         }
         ('#', _) | (_, '#') => {
@@ -132,76 +143,109 @@ fn move_wall_vertically(grid: &mut [&mut [char]], dir: Point, thing_pos: Point) 
         ('.', '[') => {
             // now try to push the right wall
             // first deduce where the right wall is relative to us
-            let next_pos_to_push = if current_element_copy == '[' {
-                next_p_pos
-            } else {
-                next_pos
-            };
-            let moved_pos = move_wall_vertically(grid, dir, next_pos_to_push);
-            if moved_pos == next_pos_to_push {
+            // let next_pos_to_push = if current_element_copy == '[' {
+            //     next_p_pos
+            // } else {
+            //     next_pos
+            // };
+            let moved_pos = move_wall_vertically(grid, dir, next_right_pos);
+            if moved_pos == next_right_pos {
                 // oh no, we could not move. ripperoni
                 thing_pos
             } else {
                 // yay we moved
-                grid[next_pos.0 as usize][next_pos.1 as usize] = current_element_copy;
-                grid[next_p_pos.0 as usize][next_p_pos.1 as usize] = paired_element_copy;
-                grid[thing_pos.0 as usize][thing_pos.1 as usize] = '.';
-                grid[paired_pos.0 as usize][paired_pos.1 as usize] = '.';
+                grid[next_left_pos.0 as usize][next_left_pos.1 as usize] = left_element;
+                grid[next_right_pos.0 as usize][next_right_pos.1 as usize] = right_element;
+                grid[left_pos.0 as usize][left_pos.1 as usize] = '.';
+                grid[right_pos.0 as usize][right_pos.1 as usize] = '.';
                 next_pos
             }
         }
         (']', '.') => {
             // now try to push the left wall
             // first deduce where the right wall is relative to us
-            let next_pos_to_push = if current_element_copy == '[' {
-                next_pos
-            } else {
-                next_p_pos
-            };
-            let moved_pos = move_wall_vertically(grid, dir, next_pos_to_push);
-            if moved_pos == next_pos_to_push {
+            let moved_pos = move_wall_vertically(grid, dir, next_left_pos);
+            if moved_pos == next_left_pos {
                 // oh no, we could not move. ripperoni
                 thing_pos
             } else {
                 // yay we moved
-                grid[next_pos.0 as usize][next_pos.1 as usize] = current_element_copy;
-                grid[next_p_pos.0 as usize][next_p_pos.1 as usize] = paired_element_copy;
-                grid[thing_pos.0 as usize][thing_pos.1 as usize] = '.';
-                grid[paired_pos.0 as usize][paired_pos.1 as usize] = '.';
+                grid[next_left_pos.0 as usize][next_left_pos.1 as usize] = left_element;
+                grid[next_right_pos.0 as usize][next_right_pos.1 as usize] = right_element;
+                grid[left_pos.0 as usize][left_pos.1 as usize] = '.';
+                grid[right_pos.0 as usize][right_pos.1 as usize] = '.';
                 next_pos
             }
         }
 
         ('[', ']') => {
             // now try to push the wall right ahead of us
-            let moved_pos = move_wall_vertically(grid, dir, next_pos);
-            if moved_pos == next_pos {
+            // should not matter if we're pushing the left or right wall.
+            // picking left arbitrarilly
+            let moved_pos = move_wall_vertically(grid, dir, next_left_pos);
+            if moved_pos == next_left_pos {
                 // oh no, we could not move. ripperoni
                 thing_pos
             } else {
                 // yay we moved
-                grid[next_pos.0 as usize][next_pos.1 as usize] = current_element_copy;
-                grid[next_p_pos.0 as usize][next_p_pos.1 as usize] = paired_element_copy;
-                grid[thing_pos.0 as usize][thing_pos.1 as usize] = '.';
-                grid[paired_pos.0 as usize][paired_pos.1 as usize] = '.';
+                grid[next_left_pos.0 as usize][next_left_pos.1 as usize] = left_element;
+                grid[next_right_pos.0 as usize][next_right_pos.1 as usize] = right_element;
+                grid[left_pos.0 as usize][left_pos.1 as usize] = '.';
+                grid[right_pos.0 as usize][right_pos.1 as usize] = '.';
                 next_pos
             }
         }
         (']', '[') => {
-            // this is the roughest case. only move ahead if both boxes move ahead
-            let moved_pos_1 = move_wall_vertically(grid, dir, next_pos);
-            let moved_pos_2 = move_wall_vertically(grid, dir, next_p_pos);
-            if moved_pos_1 == next_pos || moved_pos_2 == next_p_pos {
-                // oh no, we could not move. ripperoni
-                thing_pos
-            } else {
+            // we need a separate logic to see if the blocks can be moved. because if ether cannot move, neither should
+            // if we only use the move function, we may mistakenly push one of the above boxes when the other one cannot
+            // move
+            if can_move_wall_vertically(grid, dir, next_left_pos)
+                && can_move_wall_vertically(grid, dir, next_right_pos)
+            {
+                // now we execute the moves
+                move_wall_vertically(grid, dir, next_left_pos);
+                move_wall_vertically(grid, dir, next_right_pos);
                 // yay we moved
-                grid[next_pos.0 as usize][next_pos.1 as usize] = current_element_copy;
-                grid[next_p_pos.0 as usize][next_p_pos.1 as usize] = paired_element_copy;
-                grid[thing_pos.0 as usize][thing_pos.1 as usize] = '.';
-                grid[paired_pos.0 as usize][paired_pos.1 as usize] = '.';
+                grid[next_left_pos.0 as usize][next_left_pos.1 as usize] = left_element;
+                grid[next_right_pos.0 as usize][next_right_pos.1 as usize] = right_element;
+                grid[left_pos.0 as usize][left_pos.1 as usize] = '.';
+                grid[right_pos.0 as usize][right_pos.1 as usize] = '.';
                 next_pos
+            } else {
+                thing_pos
             }
+        }
+        _ => panic!("unknown element combo encountered"),
+    }
+}
+fn can_move_wall_vertically(grid: &mut [&mut [char]], dir: Point, thing_pos: Point) -> bool {
+    assert!([(1, 0), (-1, 0)].contains(&dir));
+    let current_element_copy = grid[thing_pos.0 as usize][thing_pos.1 as usize];
+    // dbg!(current_element_copy);
+    assert!(current_element_copy == '[' || current_element_copy == ']');
+
+    let left_pos = if current_element_copy == '[' {
+        (thing_pos.0, thing_pos.1)
+    } else {
+        (thing_pos.0, thing_pos.1 - 1)
+    };
+
+    let right_pos = (left_pos.0, left_pos.1 + 1);
+    let next_left_pos = add_points(left_pos, dir);
+    let next_right_pos = add_points(right_pos, dir);
+
+    match (
+        grid[next_left_pos.0 as usize][next_left_pos.1 as usize],
+        grid[next_right_pos.0 as usize][next_right_pos.1 as usize],
+    ) {
+        ('.', '.') => true,
+        ('#', _) | (_, '#') => false,
+        ('.', '[') => can_move_wall_vertically(grid, dir, next_right_pos),
+        (']', '.') => can_move_wall_vertically(grid, dir, next_left_pos),
+        ('[', ']') => can_move_wall_vertically(grid, dir, next_left_pos),
+        (']', '[') => {
+            can_move_wall_vertically(grid, dir, next_left_pos)
+                && can_move_wall_vertically(grid, dir, next_right_pos)
         }
         _ => panic!("unknown element combo encountered"),
     }
@@ -261,6 +305,13 @@ fn get_start_point(grid: &[&[char]]) -> Point {
     panic!("bro where is the start point fr fr");
 }
 
+fn _format_grid(grid: &[&[char]]) -> String {
+    grid.iter()
+        .map(|v| v.iter().collect::<String>())
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
 fn add_points(a: Point, b: Point) -> Point {
     (a.0 + b.0, a.1 + b.1)
 } // fn solve(
@@ -270,29 +321,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_parse_grid() {
-        let input = r"ab
-cd";
-        let (_, grid) = parse_grid(input).unwrap();
-        assert_eq!(vec![vec!['a', 'b'], vec!['c', 'd']], grid);
-    }
-
-    #[test]
-    fn test_small_sample() {
-        let input = r"########
-#..O.O.#
-##@.O..#
-#...O..#
-#.#.O..#
-#...O..#
-#......#
-########
-
-<^^>>>vv<v>>v<<";
-        let (_, (grid, moves)) = parse_input(input).unwrap();
-        assert_eq!(2028, solve(grid, moves));
-    }
     #[test]
     fn test_big_sample() {
         let input = r"##########
@@ -317,6 +345,46 @@ vvv<<^>^v^^><<>>><>^<<><^vv^^<>vvv<>><^^v>^>vv<>v<<<<v<^v>^<^^>>>^<v<v
 ^^>vv<^v^v<vv>^<><v<^v>^^^>>>^^vvv^>vvv<>>>^<^>>>>>^<<^v>^vvv<>^<><<v>
 v^^>>><<^^<>>^v^<v^vv<>v^<<>^<^v^v><^<<<><<^<v><v<>vv>>v><v^<vv<>v^<<^";
         let (_, (grid, moves)) = parse_input(input).unwrap();
-        assert_eq!(10092, solve(grid, moves));
+        let (result, grid) = solve(grid, moves);
+        assert_eq!(9021, result);
+        let slices = grid.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
+        let output_grid = r"####################
+##[].......[].[][]##
+##[]...........[].##
+##[]........[][][]##
+##[]......[]....[]##
+##..##......[]....##
+##..[]............##
+##..@......[].[][]##
+##......[][]..[]..##
+####################";
+        assert_eq!(output_grid, &_format_grid(&slices));
+        println!("{}", &_format_grid(&slices));
+    }
+
+    #[test]
+    fn test_small() {
+        let input = r"#######
+#...#.#
+#.....#
+#..OO@#
+#..O..#
+#.....#
+#######
+
+<vv<<^^<<^^";
+        let (_, (grid, moves)) = parse_input(input).unwrap();
+        let (_, grid) = solve(grid, moves);
+        // assert_eq!(9021, result);
+        let slices = grid.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
+        let output_grid = r"##############
+##...[].##..##
+##...@.[]...##
+##....[]....##
+##..........##
+##..........##
+##############";
+        assert_eq!(output_grid, &_format_grid(&slices));
+        println!("{}", &_format_grid(&slices));
     }
 }
