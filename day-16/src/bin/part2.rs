@@ -67,6 +67,10 @@ impl Hash for Node {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.point.hash(state);
         self.dir.hash(state);
+        for p in self.points.iter() {
+            p.hash(state);
+        }
+        self.cost.hash(state);
     }
 }
 
@@ -114,7 +118,7 @@ fn solve(grid: Vec<Vec<char>>) -> usize {
     let mut counter = 0;
 
     while let Some(node) = heap.pop() {
-        if counter > 100000 {
+        if counter > 1000000 {
             dbg!("breaking free");
             break;
         }
@@ -130,15 +134,12 @@ fn solve(grid: Vec<Vec<char>>) -> usize {
             best_path_points.extend(node.points.clone());
             continue;
         }
-        if best_score < 1000000 {
-            dbg!(node.cost);
-        }
         if in_bounds(&slices, &next_point)
             && grid[next_point.0 as usize][next_point.1 as usize] == '.'
         {
             // we can move forward let's goooooooooo
             let next_node = node.move_forward();
-            if !seen.contains(&next_node) && next_node.cost <= best_score + 1 {
+            if !seen.contains(&next_node) && next_node.cost <= best_score {
                 heap.push(next_node.clone());
                 seen.insert(next_node);
             }
@@ -151,7 +152,7 @@ fn solve(grid: Vec<Vec<char>>) -> usize {
             seen.insert(next_node);
         }
         let next_node = node.rotate(false);
-        if !seen.contains(&next_node) && next_node.cost <= best_score + 1 {
+        if !seen.contains(&next_node) && next_node.cost <= best_score {
             heap.push(next_node.clone());
             seen.insert(next_node);
         }
