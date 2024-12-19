@@ -1,5 +1,5 @@
 use std::{
-    collections::{BinaryHeap, HashSet},
+    collections::{BinaryHeap, HashMap, HashSet},
     env,
     fs::read_to_string,
     hash::Hash,
@@ -8,37 +8,30 @@ use std::{
 };
 
 type Point = (isize, isize);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct Node {
-    points: HashSet<Point>,
     point: Point,
     dir: Point,
     cost: usize,
 }
 
 impl Node {
-    fn new(point: Point, dir: Point, cost: usize, points: HashSet<Point>) -> Self {
-        Node {
-            point,
-            dir,
-            cost,
-            points,
-        }
+    fn new(point: Point, dir: Point, cost: usize) -> Self {
+        Node { point, dir, cost }
     }
     fn move_forward(&self) -> Self {
-        let mut points = self.points.clone();
         let next_point = add_points(self.point, self.dir);
-        points.insert(next_point);
-        Node::new(next_point, self.dir, self.cost + 1, points)
+        Node::new(next_point, self.dir, self.cost + 1)
     }
     fn rotate(&self, clockwise: bool) -> Self {
-        let points = self.points.clone();
         if clockwise {
             let next_dir = rotate_clockwise(&self.dir);
-            Node::new(self.point, next_dir, self.cost + 1000, points)
+            let next_point = add_points(self.point, next_dir);
+            Node::new(next_point, next_dir, self.cost + 1001)
         } else {
             let next_dir = rotate_anticlockwise(&self.dir);
-            Node::new(self.point, next_dir, self.cost + 1000, points)
+            let next_point = add_points(self.point, next_dir);
+            Node::new(next_point, next_dir, self.cost + 1001)
         }
     }
 }
@@ -67,10 +60,6 @@ impl Hash for Node {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.point.hash(state);
         self.dir.hash(state);
-        for p in self.points.iter() {
-            p.hash(state);
-        }
-        self.cost.hash(state);
     }
 }
 
@@ -100,6 +89,18 @@ fn rotate_anticlockwise(p: &Point) -> Point {
     (-p.1, p.0)
 }
 
+fn get_neighbors(grid: &[&[char]], node: Node) -> Vec<Node> {
+    // returns the neighbor nodes
+    [node.move_forward(), node.rotate(true), node.rotate(false)]
+        .into_iter()
+        .filter(|neighbor| {
+            in_bounds(grid, &neighbor.point)
+                && grid[neighbor.point.0 as usize][neighbor.point.1 as usize] != '#'
+            //         neighbors.push(neighbor)
+        })
+        .collect()
+}
+
 fn solve(grid: Vec<Vec<char>>) -> usize {
     let slices: Vec<&[char]> = grid.iter().map(|v| v.as_slice()).collect();
     // okay we are doing a BFS where the cost of moving forward is 1,
@@ -110,58 +111,105 @@ fn solve(grid: Vec<Vec<char>>) -> usize {
     let start_point = find_point(&slices, 'S');
     let end_point = find_point(&slices, 'E');
     let dir = (0, 1);
-    let start_node = Node::new(start_point, dir, 0, HashSet::from([start_point]));
-    let mut heap = BinaryHeap::from([start_node.clone()]);
-    let mut seen: HashSet<Node> = HashSet::from([start_node]);
-    let mut best_path_points: HashSet<Point> = HashSet::from([start_point, end_point]);
-    let mut best_score = 10000000000000;
+    let start_node = Node::new(start_point, dir, 0);
+    let mut heap = BinaryHeap::from([start_node]);
+    // make a visited map which tracks all the traversed paths. key is a point,
+    // value is a hashset of points that are parents to the key
+    let mut visited: HashMap<Point, HashSet<Point>> = HashMap::new();
+    let mut shortest_pash_cost = None;
     let mut counter = 0;
+    let mut seen: HashSet<Node> = HashSet::new();
 
     while let Some(node) = heap.pop() {
+        // if counter < 10 {
+        //     dbg!(counter);
+        //     dbg!(node.point);
+        //     dbg!(node.dir);
+        // }
         if counter > 1000000 {
             dbg!("breaking free");
+            dbg!(visited.len());
             break;
         }
-        // check if the next node is reachable in front
-
-        let next_point = add_points(node.point, node.dir);
-        if next_point == end_point {
-            // struck gold!!
-            dbg!("found a best path");
-            best_score = node.cost + 1;
-            dbg!(&best_score);
-            dbg!(node.points.len());
-            best_path_points.extend(node.points.clone());
-            continue;
-        }
-        if in_bounds(&slices, &next_point)
-            && grid[next_point.0 as usize][next_point.1 as usize] == '.'
-        {
-            // we can move forward let's goooooooooo
-            let next_node = node.move_forward();
-            if !seen.contains(&next_node) && next_node.cost <= best_score {
-                heap.push(next_node.clone());
-                seen.insert(next_node);
+        if let Some(shortest_path_cost) = shortest_pash_cost {
+            if node.cost > shortest_path_cost {
+                dbg!("longer than shortest path");
+                break;
             }
         }
-        // add the rotations to the end of the system
 
-        let next_node = node.rotate(true);
-        if !seen.contains(&next_node) && next_node.cost <= best_score {
-            heap.push(next_node.clone());
-            seen.insert(next_node);
+        if node.point == end_point {
+            dbg!("found best path");
+            shortest_pash_cost = Some(node.cost);
         }
-        let next_node = node.rotate(false);
-        if !seen.contains(&next_node) && next_node.cost <= best_score {
-            heap.push(next_node.clone());
-            seen.insert(next_node);
+
+        for neighbor in get_neighbors(&slices, node).iter() {
+            if !seen.contains(neighbor) {
+                heap.push(*neighbor);
+                seen.insert(*neighbor);
+                visited
+                    .entry(neighbor.point)
+                    .and_modify(|set| {
+                        set.insert(node.point);
+                    })
+                    .or_insert_with(|| HashSet::from([node.point]));
+            }
         }
 
         seen.insert(node);
+
         counter += 1;
     }
 
-    best_path_points.len()
+    // searching is complete. now we need to backtrack on visited map
+    // to find all the shortest paths
+
+    dbg!(shortest_pash_cost);
+    // return 0;
+    let all_paths = reconstruct_all_paths(start_point, end_point, &visited);
+
+    all_paths
+        .into_iter()
+        .flatten()
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+fn reconstruct_all_paths(
+    start_point: Point,
+    end_point: Point,
+    visited: &HashMap<Point, HashSet<Point>>,
+) -> Vec<Vec<Point>> {
+    let mut all_paths = Vec::new();
+    backtrack(
+        end_point,
+        start_point,
+        visited,
+        &mut Vec::new(),
+        &mut all_paths,
+    );
+    all_paths
+}
+
+fn backtrack(
+    current_point: Point,
+    start_point: Point,
+    visited: &HashMap<Point, HashSet<Point>>,
+    path: &mut Vec<Point>,
+    all_paths: &mut Vec<Vec<Point>>,
+) {
+    path.push(current_point);
+
+    if current_point == start_point {
+        all_paths.push(path.iter().rev().cloned().collect());
+    } else {
+        for parent in visited[&current_point].iter() {
+            // recursively call backtrack from them
+            dbg!(current_point);
+            dbg!(parent);
+            backtrack(*parent, start_point, visited, path, all_paths);
+        }
+    }
 }
 
 fn parse_grid(input: &str) -> Vec<Vec<char>> {
@@ -201,7 +249,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sample() {
+    fn test_sample_1() {
         let input = r"###############
 #.......#....E#
 #.#.###.#.###.#
