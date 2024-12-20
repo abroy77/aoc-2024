@@ -1,4 +1,11 @@
-use std::{env, fmt::Debug, fs::read_to_string, path::PathBuf, str::FromStr};
+use std::{
+    env,
+    fmt::Debug,
+    fs::read_to_string,
+    io::{self, Write},
+    path::PathBuf,
+    str::FromStr,
+};
 
 use nom::{
     bytes::complete::{tag, take_till},
@@ -10,18 +17,36 @@ use nom::{
 fn main() -> std::io::Result<()> {
     // get the data filepath
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
+    if args.len() != 2 {
         panic!("Filepath not provided");
     }
     let data_path = PathBuf::from_str(&args[1]).expect("Failed to convert input to filepath");
-    let reg_a = args[2].parse().expect("not an int");
-
     assert!(data_path.exists(), "data path does not exist");
+    // let reg_a= args[2].parse().expect("not an int");
+    // let reg_a = usize::from_str_radix(&args[2], 2).unwrap();
+
     let data = read_to_string(data_path).expect("could not read datapath");
     let (_, mut comp) = parse_input(&data).unwrap();
-    let result = comp.result(reg_a);
-    println!("Solution is {}", result);
 
+    loop {
+        // take input from commmand line
+        let mut input = String::new();
+        io::stdout().flush().unwrap();
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                let input = input.trim();
+                let reg_a = usize::from_str_radix(input, 2).unwrap();
+                comp.reset();
+                let result = comp.result(reg_a);
+                println!("input {}", reg_a);
+                println!("Solution is {}", result);
+            }
+            Err(error) => {
+                println!("invalid input: {}", error);
+                break;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -57,12 +82,23 @@ impl Computer {
         }
     }
 
+    fn reset(&mut self) {
+        self.registers = [0, 0, 0];
+        self.instruction_pointer = 0;
+        self.output = vec![];
+    }
+
+    fn reverse_engineer(&mut self) -> usize {
+        let mut sol: usize = 0;
+        for i in (0..(self.program.len() - 1)).rev() {}
+    }
+
     fn run(&mut self) {
         while self.instruction_pointer < self.program.len() - 1 {
             let opcode = self.program[self.instruction_pointer];
             let operand_code = self.program[self.instruction_pointer + 1];
 
-            println!("{:?}", &self);
+            //         // println!("{:?}", &self);.,.
             match opcode {
                 0 => self.adv(operand_code),
                 1 => self.bxl(operand_code),
@@ -92,69 +128,69 @@ impl Computer {
     }
 
     fn adv(&mut self, operand_code: usize) {
-        println!(
-            "regA = regA >> combo = {} >> {}",
-            self.registers[0],
-            self.get_combo_operand(operand_code)
-        );
+        //     println!(
+        // "regA = regA >> combo = {} >> {}",
+        // self.registers[0],
+        // self.get_combo_operand(operand_code)
+        // );
         self.registers[0] /= 2_usize.pow(self.get_combo_operand(operand_code) as u32);
     }
 
     fn bxl(&mut self, operand_code: usize) {
-        println!(
-            "regB = regB ^ opcode = {} ^ {}",
-            self.registers[1], operand_code
-        );
+        //     println!(
+        // "regB = regB ^ opcode = {} ^ {}",
+        // self.registers[1], operand_code
+        // );
         self.registers[1] ^= operand_code;
     }
     fn bst(&mut self, operand_code: usize) {
-        println!(
-            "regB = combo % 8 = {} % 8",
-            self.get_combo_operand(operand_code)
-        );
+        //     println!(
+        // "regB = combo % 8 = {} % 8",
+        // self.get_combo_operand(operand_code)
+        // );
         self.registers[1] = self.get_combo_operand(operand_code) % 8;
     }
 
     fn jnz(&mut self, operand_code: usize) {
         if self.registers[0] != 0 {
-            println!("jump to opcode = {}", operand_code);
+            //         println!("jump to opcode = {}", operand_code);
             self.instruction_pointer = operand_code;
         } else {
-            println!("not jumping");
+            //         println!("not jumping");
         }
     }
 
     fn bxc(&mut self, _operand_code: usize) {
-        println!(
-            "regB = regB ^ regC = {} ^ {}",
-            self.registers[1], self.registers[2]
-        );
+        //     println!(
+        // "regB = regB ^ regC = {} ^ {}",
+        // self.registers[1], self.registers[2]
+        // );
         self.registers[1] ^= self.registers[2];
     }
     fn out(&mut self, operand_code: usize) {
         let value = self.get_combo_operand(operand_code) % 8;
-        println!(
-            "push combo %8 = {} % 8 = {} to output",
-            self.get_combo_operand(operand_code),
-            value
-        );
+        //     println!(
+        // "push combo %8 = {} % 8 = {} to output",
+        // self.get_combo_operand(operand_code),
+        // value
+        // );
         self.output.push(value);
     }
     fn bdv(&mut self, operand_code: usize) {
-        println!(
-            "regB = regA >> combo = {} >> {}",
-            self.registers[0],
-            self.get_combo_operand(operand_code)
-        );
+        //     println!(
+        // "regB = regA >> combo = {} >> {}",
+        // self.registers[0],
+        // self.get_combo_operand(operand_code)
+        // );
         self.registers[1] =
             self.registers[0] / 2_usize.pow(self.get_combo_operand(operand_code) as u32);
     }
     fn cdv(&mut self, operand_code: usize) {
-        println!(
-            "regC = regA >> combo = {} >> {}",
-            self.registers[0],
-            self.get_combo_operand(operand_code)
-        );
+        //     println!(
+        // "regC = regA >> combo = {} >> {}",
+        // self.registers[0],
+        // self.get_combo_operand(operand_code)
+        // );
         self.registers[2] =
             self.registers[0] / 2_usize.pow(self.get_combo_operand(operand_code) as u32);
     }
