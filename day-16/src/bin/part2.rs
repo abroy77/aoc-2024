@@ -256,6 +256,7 @@ fn solve(grid: Vec<Vec<char>>) -> (usize, String) {
     let mut vis = Visited::new();
     let mut best_score = None;
     let mut counter = 0;
+    let mut seen: HashSet<Node> = HashSet::new();
 
     while let Some(node) = heap.pop() {
         // println!(
