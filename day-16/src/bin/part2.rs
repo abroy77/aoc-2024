@@ -1,6 +1,9 @@
+use core::panic;
 use std::{
-    collections::{BinaryHeap, HashSet},
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap, HashSet},
     env,
+    fmt::{Debug, Display},
     fs::read_to_string,
     hash::Hash,
     path::PathBuf,
@@ -8,38 +11,50 @@ use std::{
 };
 
 type Point = (isize, isize);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct Node {
-    points: HashSet<Point>,
     point: Point,
     dir: Point,
     cost: usize,
 }
 
+impl Display for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "point: ({}, {}), dir: ({}, {}), cost {}",
+            self.point.0, self.point.1, self.dir.0, self.dir.1, self.cost
+        )
+    }
+}
+
 impl Node {
-    fn new(point: Point, dir: Point, cost: usize, points: HashSet<Point>) -> Self {
-        Node {
-            point,
-            dir,
-            cost,
-            points,
-        }
+    fn new(point: Point, dir: Point, cost: usize) -> Self {
+        Node { point, dir, cost }
     }
-    fn move_forward(&self) -> Self {
-        let mut points = self.points.clone();
-        let next_point = add_points(self.point, self.dir);
-        points.insert(next_point);
-        Node::new(next_point, self.dir, self.cost + 1, points)
-    }
-    fn rotate(&self, clockwise: bool) -> Self {
-        let points = self.points.clone();
-        if clockwise {
-            let next_dir = rotate_clockwise(&self.dir);
-            Node::new(self.point, next_dir, self.cost + 1000, points)
-        } else {
-            let next_dir = rotate_anticlockwise(&self.dir);
-            Node::new(self.point, next_dir, self.cost + 1000, points)
+
+    fn get_neighbors(&self, grid: &[&[char]]) -> Vec<Node> {
+        let mut neighbors = Vec::with_capacity(3);
+        // let's try to move forward
+        let next_nodes = [
+            Node::new(add_points(self.point, self.dir), self.dir, self.cost + 1),
+            Node::new(self.point, rotate_clockwise(&self.dir), self.cost + 1000),
+            Node::new(
+                self.point,
+                rotate_anticlockwise(&self.dir),
+                self.cost + 1000,
+            ),
+        ];
+
+        for next_node in next_nodes.iter() {
+            if in_bounds(grid, &next_node.point)
+                && grid[next_node.point.0 as usize][next_node.point.1 as usize] != '#'
+            {
+                // we can move ahead
+                neighbors.push(*next_node);
+            }
         }
+        neighbors
     }
 }
 
@@ -67,11 +82,136 @@ impl Hash for Node {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.point.hash(state);
         self.dir.hash(state);
-        for p in self.points.iter() {
-            p.hash(state);
-        }
-        self.cost.hash(state);
     }
+}
+
+struct Visited {
+    sources: HashMap<Node, HashSet<Node>>,
+    costs: HashMap<Node, usize>,
+}
+
+impl Visited {
+    fn new() -> Self {
+        Visited {
+            sources: HashMap::new(),
+            costs: HashMap::new(),
+        }
+    }
+    fn insert(&mut self, source: Node, dest: Node, cost: usize) -> bool {
+        // return false if the insert was not made. else enter true
+        // we assume that both sources and costs should have the same existing keys at any given
+        // point in time
+        if let Some(lowest_cost) = self.costs.get(&dest) {
+            match cost.cmp(lowest_cost) {
+                Ordering::Greater => {
+                    return false;
+                }
+                Ordering::Less => {
+                    // we found a better route to this dest. reset the sources
+                    // and the cost
+                    self.costs
+                        .entry(dest)
+                        .and_modify(|saved_cost| *saved_cost = cost);
+                    assert_eq!(*self.costs.get(&dest).unwrap(), cost);
+                    self.sources.entry(dest).and_modify(|inner_sources| {
+                        println!("draining {}", &dest);
+                        inner_sources.drain();
+                        assert!(inner_sources.is_empty());
+                        inner_sources.insert(source);
+                    });
+                }
+                Ordering::Equal => {
+                    // same as lowest cost. insert into sources
+                    self.sources.entry(dest).and_modify(|e| {
+                        e.insert(source);
+                    });
+                }
+            }
+        } else {
+            // we need to make new entries in sources and in costs
+            self.costs.insert(dest, cost);
+            self.sources.insert(dest, HashSet::from([source]));
+        }
+        true
+    }
+
+    fn get_shortest_paths(&mut self, start_point: Point, end_point: Point) -> HashSet<Vec<Node>> {
+        // we need to construct 4 dummy end_nodes such that the end_point can be reached from any direction
+        let end_nodes = [(-1, 0), (0, 1), (1, 0), (0, -1)]
+            .into_iter()
+            .map(|dir| {
+                // cost does not matter
+                Node::new(end_point, dir, 10000000)
+            })
+            .collect::<Vec<_>>();
+
+        let mut shortest_paths = HashSet::new();
+        for end_node in end_nodes {
+            if !self.sources.contains_key(&end_node) {
+                continue;
+            }
+            self.backtrack(end_node, start_point, &mut shortest_paths, &mut Vec::new());
+        }
+
+        // shortest_paths
+        //     .iter()
+        //     .flatten()
+        //     .map(|n| n.point)
+        //     .collect::<HashSet<_>>()
+        //     .len()
+        shortest_paths
+    }
+
+    fn backtrack(
+        &mut self,
+        current: Node,
+        source: Point,
+        all_paths: &mut HashSet<Vec<Node>>,
+        path: &mut Vec<Node>,
+    ) {
+        path.push(current);
+
+        if current.point == source {
+            all_paths.insert(path.clone().into_iter().rev().collect());
+        } else {
+            let parents = self
+                .sources
+                .get(&current)
+                .unwrap_or_else(|| {
+                    dbg!(&current);
+                    panic!();
+                })
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            for parent in parents {
+                if path.contains(&parent) {
+                    continue;
+                }
+                let mut cloned_path = path.clone();
+                self.backtrack(parent, source, all_paths, &mut cloned_path);
+            }
+        }
+    }
+    fn print(&self) -> String {
+        let mut ans = String::new();
+        for (k, v) in self.sources.iter() {
+            ans.push_str(&format!("{}", k));
+            ans.push_str(" : [");
+            for s in v {
+                ans.push_str(&format!("{}", s));
+                ans.push_str(", ");
+            }
+            ans.push(']');
+            ans.push('\n');
+        }
+        ans.push('\n');
+        ans
+    }
+}
+
+fn print_tuple_2<T: Display>(a: &(T, T)) -> String {
+    format!("({},{})", a.0, a.1)
 }
 
 fn main() -> std::io::Result<()> {
@@ -85,7 +225,7 @@ fn main() -> std::io::Result<()> {
     assert!(data_path.exists(), "data path does not exist");
     let data = read_to_string(data_path).expect("could not read datapath");
     let grid = parse_grid(&data);
-    let result = solve(grid);
+    let (result, res_grid) = solve(grid);
 
     println!("Solution is {}", result);
 
@@ -100,7 +240,7 @@ fn rotate_anticlockwise(p: &Point) -> Point {
     (-p.1, p.0)
 }
 
-fn solve(grid: Vec<Vec<char>>) -> usize {
+fn solve(grid: Vec<Vec<char>>) -> (usize, String) {
     let slices: Vec<&[char]> = grid.iter().map(|v| v.as_slice()).collect();
     // okay we are doing a BFS where the cost of moving forward is 1,
     // cost of rotating by 90 degrees clockwise / anticlockwise is 1000
@@ -110,58 +250,83 @@ fn solve(grid: Vec<Vec<char>>) -> usize {
     let start_point = find_point(&slices, 'S');
     let end_point = find_point(&slices, 'E');
     let dir = (0, 1);
-    let start_node = Node::new(start_point, dir, 0, HashSet::from([start_point]));
-    let mut heap = BinaryHeap::from([start_node.clone()]);
-    let mut seen: HashSet<Node> = HashSet::from([start_node]);
-    let mut best_path_points: HashSet<Point> = HashSet::from([start_point, end_point]);
-    let mut best_score = 10000000000000;
+    let start_node = Node::new(start_point, dir, 0);
+    let mut heap = BinaryHeap::from([start_node]);
+    // let mut seen: HashSet<Node> = HashSet::from([start_node]);
+    let mut vis = Visited::new();
+    let mut best_score = None;
     let mut counter = 0;
 
     while let Some(node) = heap.pop() {
-        if counter > 1000000 {
-            dbg!("breaking free");
-            break;
-        }
-        // check if the next node is reachable in front
-
-        let next_point = add_points(node.point, node.dir);
-        if next_point == end_point {
-            // struck gold!!
-            dbg!("found a best path");
-            best_score = node.cost + 1;
-            dbg!(&best_score);
-            dbg!(node.points.len());
-            best_path_points.extend(node.points.clone());
-            continue;
-        }
-        if in_bounds(&slices, &next_point)
-            && grid[next_point.0 as usize][next_point.1 as usize] == '.'
-        {
-            // we can move forward let's goooooooooo
-            let next_node = node.move_forward();
-            if !seen.contains(&next_node) && next_node.cost <= best_score {
-                heap.push(next_node.clone());
-                seen.insert(next_node);
+        // println!(
+        //     "Node: {}, {}, {}",
+        //     print_tuple_2(&node.point),
+        //     print_tuple_2(&node.dir),
+        //     &node.cost
+        // );
+        if let Some(best_score) = best_score {
+            if node.cost > best_score {
+                println!(
+                    "breaking: node > best_score: {} at counter {}",
+                    best_score, counter
+                );
+                break;
             }
         }
-        // add the rotations to the end of the system
-
-        let next_node = node.rotate(true);
-        if !seen.contains(&next_node) && next_node.cost <= best_score {
-            heap.push(next_node.clone());
-            seen.insert(next_node);
-        }
-        let next_node = node.rotate(false);
-        if !seen.contains(&next_node) && next_node.cost <= best_score {
-            heap.push(next_node.clone());
-            seen.insert(next_node);
+        // check that we have not seen this node before at a lowest cost
+        if vis.costs.get(&node).unwrap_or(&100000_usize) < &node.cost {
+            continue;
         }
 
-        seen.insert(node);
+        if node.point == end_point {
+            println!("end found with cost {} at counter {}", node.cost, counter);
+            best_score = Some(node.cost);
+        }
+        if counter > 1000000 {
+            println!("breaking free");
+            break;
+        }
+        // get the neighbor nodes
+        let neighbors = node.get_neighbors(&slices);
+        // if best cost is set, break if encountering a node with a greater score
+
+        // insert the neighbors to visited
+        for neighbor in neighbors {
+            if let Some(best_score) = best_score {
+                if neighbor.cost > best_score {
+                    continue;
+                }
+            }
+            let was_inserted = vis.insert(node, neighbor, neighbor.cost);
+            if was_inserted {
+                heap.push(neighbor);
+            }
+            // seen.insert(neighbor);
+            // if !seen.contains(&neighbor) {
+            // }
+        }
         counter += 1;
     }
+    println!("score is {}", best_score.unwrap());
+    // print visited
+    // println!("{}", &vis.print());
+    // now that vis is built, we get all the shortest points
+    let shortest_paths = vis.get_shortest_paths(start_point, end_point);
+    println!("num paths: {}", shortest_paths.len());
+    // for p in shortest_paths.iter() {
+    //     println!("{}", print_vec_tuple_2(p));
+    // }
+    let shortest_path_points = shortest_paths
+        .iter()
+        .flatten()
+        .map(|n| n.point)
+        .collect::<HashSet<_>>();
+    // println!("{}", print_path_grid(&slices, &shortest_path_points));
 
-    best_path_points.len()
+    (
+        shortest_path_points.len(),
+        print_path_grid(&slices, &shortest_path_points),
+    )
 }
 
 fn parse_grid(input: &str) -> Vec<Vec<char>> {
@@ -175,6 +340,38 @@ fn parse_grid(input: &str) -> Vec<Vec<char>> {
         assert_eq!(result[i].len(), result[i + 1].len());
     }
     result
+}
+
+fn print_vec_tuple_2(i: &Vec<Point>) -> String {
+    let mut s = String::new();
+    s.push('[');
+    for e in i {
+        s.push_str(&print_tuple_2(e));
+    }
+    s.push(']');
+    s
+}
+
+fn print_path_grid(grid: &[&[char]], path_points: &HashSet<Point>) -> String {
+    grid.iter()
+        .enumerate()
+        .map(|(i, v)| {
+            v.iter()
+                .enumerate()
+                .map(|(j, c)| {
+                    if path_points.contains(&(i as isize, j as isize)) {
+                        if *c == '#' {
+                            panic!("oh no we're on a wall in our path what the heck")
+                        }
+                        'O'
+                    } else {
+                        *c
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 fn find_point<T: PartialEq>(grid: &[&[T]], element: T) -> Point {
@@ -201,7 +398,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sample() {
+    fn test_sample_1() {
         let input = r"###############
 #.......#....E#
 #.#.###.#.###.#
@@ -218,7 +415,26 @@ mod tests {
 #S..#.....#...#
 ###############";
         let grid = parse_grid(input);
-        assert_eq!(45, solve(grid));
+        let (res, res_grid) = solve(grid);
+        assert_eq!(45, res);
+        assert_eq!(
+            r"###############
+#.......#....O#
+#.#.###.#.###O#
+#.....#.#...#O#
+#.###.#####.#O#
+#.#.#.......#O#
+#.#.#####.###O#
+#..OOOOOOOOO#O#
+###O#O#####O#O#
+#OOO#O....#O#O#
+#O#O#O###.#O#O#
+#OOOOO#...#O#O#
+#O###.#.#.#O#O#
+#O..#.....#OOO#
+###############",
+            &res_grid
+        );
     }
 
     #[test]
@@ -241,6 +457,27 @@ mod tests {
 #S#.............#
 #################";
         let grid = parse_grid(input);
-        assert_eq!(64, solve(grid));
+        let (res, res_grid) = solve(grid);
+        assert_eq!(64, res);
+        assert_eq!(
+            r"#################
+#...#...#...#..O#
+#.#.#.#.#.#.#.#O#
+#.#.#.#...#...#O#
+#.#.#.#.###.#.#O#
+#OOO#.#.#.....#O#
+#O#O#.#.#.#####O#
+#O#O..#.#.#OOOOO#
+#O#O#####.#O###O#
+#O#O#..OOOOO#OOO#
+#O#O###O#####O###
+#O#O#OOO#..OOO#.#
+#O#O#O#####O###.#
+#O#O#OOOOOOO..#.#
+#O#O#O#########.#
+#O#OOO..........#
+#################",
+            &res_grid
+        );
     }
 }
